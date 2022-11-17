@@ -1,0 +1,286 @@
+---
+title: "What is the minimal acceptable ventilation rate in the COVID-19 pandemic"
+author: "Caroline Gao & Danting Luo"
+date: "2022/02/23"
+output: html_document
+---
+
+
+
+```{r}
+library(litsearchr)
+library(tidyverse)
+library(magrittr)
+library(revtools)
+library(tidytext)
+library(dplyr)
+library(shiny)
+library(dplyr)
+library(ggplot2)
+library(ggraph)
+library(igraph)
+library(readr)
+library(devtools)
+#library(usethis)
+
+```
+#Import
+```{r}
+naive_results <- import_results(directory = "./txt_lib_lit",
+                                    file=NULL) 
+dim(naive_results)
+
+naive_results<- naive_results%>%
+  distinct(title,.keep_all = TRUE)%>%
+  distinct(accession_number,.keep_all = TRUE)
+dim(naive_results)
+
+# extract usefull variables 
+naive_results<-naive_results%>% 
+    select(author,date_published,title,source,abstract,doi) %>% 
+    mutate(DOI= paste0("http://doi.org/",str_remove(doi, " \\[doi\\]"))) %>%
+  select(-doi)
+  
+
+#give a ID 
+naive_results$ID<-1:nrow(naive_results)
+names(naive_results)[names(naive_results) == 'source'] <- 'journal'
+names(naive_results)[names(naive_results) == 'date_generated'] <- 'date_published'
+
+
+dim(naive_results)
+my_text<- tibble(ID = naive_results$ID, text = paste(naive_results$title,  
+                                                        naive_results$abstract))
+
+```
+
+
+
+
+```{r}
+
+
+# define words that are potentially related to clustering 
+list<-c("keywords")
+
+# extract single word tokens
+words<-my_text %>% 
+  group_by(ID) %>%
+  unnest_tokens(word, text )  %>% 
+  filter(!word %in% stop_words$word) %>% 
+  group_by(word) %>% 
+  mutate(n=n()) %>% 
+  filter(word  %in% list ) 
+
+words_ <- arrange(words,desc(n))%>%
+  select(-ID)%>% 
+  distinct()
+
+## 2-gram
+
+#Next we extract all tokens with two words.
+
+
+bigram<-my_text %>% 
+  group_by(ID) %>%
+  unnest_tokens(word, text ,token = "ngrams", n = 2)  %>% 
+  separate(word, into = c("word1", "word2"), sep = " ") %>% 
+  filter(!word1 %in% stop_words$word,
+          !word2 %in% stop_words$word) %>%
+  unite(word, c(word1, word2), sep = " ") %>% 
+  group_by(word) %>% 
+  mutate(n=n()) %>% 
+  filter(2500>n & n>50)
+
+bigram <- bigram 
+
+bigram_<- arrange(bigram,desc(n))%>%
+    select(-ID)%>% 
+    distinct()
+  
+
+
+
+
+## 3-gram
+
+#Last we extract all tokens with three words.
+
+
+
+trgram<-my_text %>% 
+  group_by(ID) %>%
+  unnest_tokens(word, text ,token = "ngrams", n = 3)  %>% 
+  separate(word, into = c("word1", "word2","word3"), sep = " ") %>% 
+  filter(!word1 %in% stop_words$word,
+          !word2 %in% stop_words$word,
+          !word3 %in% stop_words$word) %>%
+  unite(word, c(word1, word2, word3 ), sep = " ") %>% 
+  group_by(word) %>% 
+  mutate(n=n())  %>% 
+  filter(1000>n & n>20)
+  
+
+
+trgram_ <- arrange(trgram,desc(n))%>% 
+  select(-ID)%>% 
+  distinct()
+  
+
+
+ngram<-rbind(words,bigram,trgram) %>% 
+  select(-ID) %>% 
+  distinct() %>% 
+  arrange(n)
+#ngram$word
+
+
+```
+
+#Identify frequency of keywords included in individual paper. 
+
+```{r}
+list<-c("keywords")
+clustering<-rbind(words,bigram,trgram) %>% 
+  mutate(clustering_all=ifelse(word %in% list,1,0)) %>% 
+  group_by(ID) %>% 
+  summarise(clustering_all=sum(clustering_all)) 
+
+naive_results<-naive_results %>% 
+  left_join(clustering)
+dim(naive_results)
+```
+#Manually reviewed and used number of keywords showed up for three times or more as an indicator possible clustering paper
+
+```{r}
+naive_results<-filter(naive_results,clustering_all>=3)
+dim(naive_results)
+```
+
+```{r}
+Journals<-naive_results%>% 
+    group_by(journal) %>% 
+    tally() %>% 
+    na.omit() %>% 
+    arrange(desc(n))
+nrow(Journals)
+head(Journals,10)
+
+```
+
+#papers in important journals
+
+```{r}
+journals<-c( "Journals'name")
+
+naive_results_pubmedtrans<-naive_results_pubmedtrans %>% 
+    filter(!(journal %in% journals))
+dim(naive_results_pubmedtrans)
+
+
+```
+#extract
+```{r}
+listanti<-c("keywords")
+wordsanti<-my_text %>% 
+  group_by(ID) %>%
+  unnest_tokens(word, text )  %>% 
+  filter(!word %in% stop_words$word) %>% 
+  group_by(word) %>% 
+  mutate(n=n()) 
+
+wordsanti_ <- arrange(wordsanti,desc(n))%>% 
+  select(-ID)%>% 
+  distinct()
+
+clusteringanti<-wordsanti %>% 
+  mutate(clusteringanti=ifelse(word %in% listanti,1,0)) %>% 
+  group_by(ID) %>% 
+  summarise(clusteringanti=sum(clusteringanti)) 
+
+naive_results_pubmedtrans<-naive_results_pubmedtrans %>% 
+  left_join(clusteringanti)
+dim(naive_results_pubmedtrans)
+naive_selected_<-naive_results_pubmedtrans%>%
+  filter(clusteringanti==0)%>%
+  filter(!(abstract=='NA'))
+
+dim(naive_selected_)
+
+```
+
+#for screen
+```{r}
+
+
+data0 <- read_bibliography(c("database.bib"), return_df = TRUE)
+
+
+matches <- find_duplicates(data0, match_variable = "title") 
+screen <- extract_unique_references(data0, matches) 
+screen<-filter(screen, title %in% naive_selected$title)
+dim(screen)
+#screen_abstracts(screen)
+```
+
+```{r}
+screen_sel_anti<-filter(naive_selected, !(title %in% screen$title))
+screen_sel_anti_<-tibble(ID = screen_sel_anti$ID, title = screen_sel_anti$title, abstract=screen_sel_anti$abstract)
+write_csv(screen_sel_anti_,"screen_sel_anti_.csv")
+```
+
+```{r}
+
+screen_abstracts(screen)
+#screen_topics(screen0)
+```
+
+```{r}
+screened1<-read_csv(here::here("researcher1.csv"))
+screened2<-read_csv(here::here("researcher2.csv"))
+
+
+screened1<-screened1%>% 
+    filter(screened1$screened_abstracts =='selected')
+screened2<-screened2%>% 
+    filter(screened2$screened_abstracts =='selected')
+
+```
+
+```{r}
+
+Full_text1<-naive_results %>% 
+  filter(title %in% screened1$title) %>% 
+  mutate(year=substr(date_published,1,4)) %>% 
+  mutate(ID=paste(gsub( " .*$", "", author ), year)) %>% 
+  mutate(DOI_noweb=str_replace(DOI, "http://doi.org/", "")) %>%
+  group_by(ID) %>% 
+  mutate(n=seq(n()),N=n()) %>% 
+  mutate(ID=ifelse(N==1,ID, paste0(ID,letters[n]))) %>% 
+  select(ID,title,DOI, author,year,journal, abstract)  
+
+Full_text1$DOI_noweb[Full_text1$DOI_noweb=="NA"] <- "http://doi.org/NA"
+
+Full_text2<-naive_results %>% 
+    filter(title %in% screened2$title) %>% 
+    mutate(year=substr(date_published,1,4)) %>% 
+    mutate(ID=paste(gsub( " .*$", "", author ), year)) %>% 
+    mutate(DOI_noweb=str_replace(DOI, "http://doi.org/", "")) %>% 
+    group_by(ID) %>% 
+    mutate(n=seq(n()),N=n()) %>% 
+    mutate(ID=ifelse(N==1,ID, paste0(ID,letters[n]))) %>% 
+    select(ID,title,DOI, author,year,journal, abstract)  
+Full_text<-rbind(Full_text1,Full_text2) 
+#naive_results$title[duplicated(naive_results$title)]
+dim(Full_text)
+Full_text<- Full_text%>%
+  distinct(title,author,.keep_all = TRUE) 
+```
+
+
+# Save file for manual review 
+
+```{r}
+write_csv(Full_text,"Full text review.csv")
+```
+
