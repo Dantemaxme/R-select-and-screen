@@ -1,7 +1,7 @@
 ---
-title: "What is the minimal acceptable ventilation rate in the COVID-19 pandemic"
+title: "Minimum acceptable ventilation rate for mitigating respiratory infection: lesson from COVID-19 pandemic"
 author: "Caroline Gao & Danting Luo"
-date: "2022/02/23"
+date: "2024/11/06"
 output: html_document
 ---
 
@@ -24,6 +24,7 @@ library(devtools)
 #library(usethis)
 
 ```
+#Download records from varies databases
 #Import
 ```{r}
 naive_results <- import_results(directory = "./txt_lib_lit",
